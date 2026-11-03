@@ -55,6 +55,7 @@ class _HomeState extends State<Home> {
   bool _connecting = false;
   bool _sending = false;
   bool _disposed = false;
+  Timer? _pollTimer;   // fallback poll for the current song (background)
 
   // All GATT writes are serialized. This prevents two metadata/artwork
   // transfers from writing to the same characteristic simultaneously.
@@ -86,6 +87,7 @@ class _HomeState extends State<Home> {
     _scanSub?.cancel();
     _connSub?.cancel();
     _npSub?.cancel();
+    _pollTimer?.cancel();
     _titleCtl.dispose();
     _artistCtl.dispose();
     super.dispose();
@@ -500,6 +502,11 @@ class _HomeState extends State<Home> {
         return;
       }
 
+      // Keep the app alive in the background (silent audio session, iOS).
+      try {
+        await _method.invokeMethod('startKeepAlive');
+      } catch (_) {}
+
       await _npSub?.cancel();
       _npSub = _events.receiveBroadcastStream().listen(
         (event) {
@@ -515,6 +522,19 @@ class _HomeState extends State<Home> {
           _setStatus('Now Playing error: $error');
         },
       );
+      // Fallback: the change notification can be missed in the background,
+      // so also check the current song every 5 seconds (deduplicated by _lastKey).
+      _pollTimer?.cancel();
+      _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+        try {
+          final cur = await _method.invokeMethod<Map>('current');
+          if (cur == null) return;
+          _handleTrack(
+            (cur['title'] ?? '').toString(),
+            (cur['artist'] ?? '').toString(),
+          );
+        } catch (_) {}
+      });
     } catch (e) {
       _setStatus('Now Playing setup error: $e');
     }
