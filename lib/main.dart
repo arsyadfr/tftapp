@@ -42,8 +42,6 @@ class _HomeState extends State<Home> {
   static const MethodChannel _method = MethodChannel('nowplaying/method');
   static const EventChannel _events = EventChannel('nowplaying/events');
 
-  final TextEditingController _titleCtl = TextEditingController();
-  final TextEditingController _artistCtl = TextEditingController();
 
   BluetoothDevice? _dev;
   BluetoothCharacteristic? _char;
@@ -88,8 +86,6 @@ class _HomeState extends State<Home> {
     _connSub?.cancel();
     _npSub?.cancel();
     _pollTimer?.cancel();
-    _titleCtl.dispose();
-    _artistCtl.dispose();
     super.dispose();
   }
 
@@ -546,6 +542,9 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bool hasTrack = _nowPlaying != '-';
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Media Display TFT'),
@@ -557,63 +556,126 @@ class _HomeState extends State<Home> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
-            children: [
-              Icon(
-                _dev == null ? Icons.bluetooth_disabled : Icons.bluetooth_connected,
-                color: _dev == null ? Colors.grey : Colors.green,
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: Text('BLE: $_status')),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('Now playing: $_nowPlaying'),
-          const SizedBox(height: 16),
-          if (_lastJpg != null)
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.memory(
-                  _lastJpg!,
-                  width: 240,
-                  height: 240,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      const Text('Cannot display artwork'),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Artwork, or a placeholder when nothing is playing /
+                      // while the artwork is still loading.
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 240,
+                          height: 240,
+                          child: _lastJpg != null
+                              ? Image.memory(
+                                  _lastJpg!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) =>
+                                      _artPlaceholder(scheme),
+                                )
+                              : _artPlaceholder(scheme),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      // Title + artist under the artwork (same layout as the TFT).
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 320),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              hasTrack ? _lastTitle : 'Nothing playing',
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w600,
+                                color: hasTrack
+                                    ? scheme.onSurface
+                                    : scheme.onSurface.withOpacity(0.5),
+                              ),
+                            ),
+                            if (hasTrack && _lastArtist.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                _lastArtist,
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: scheme.onSurface.withOpacity(0.6),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      // Connection status (small, subdued)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _dev == null
+                                ? Icons.bluetooth_disabled
+                                : Icons.bluetooth_connected,
+                            size: 16,
+                            color: _dev == null ? Colors.grey : Colors.green,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              _status,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: scheme.onSurface.withOpacity(0.5),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          const Divider(height: 32),
-          const Text(
-            'Manual testing',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          TextField(
-            controller: _titleCtl,
-            decoration: const InputDecoration(labelText: 'Title'),
-            textInputAction: TextInputAction.next,
-          ),
-          TextField(
-            controller: _artistCtl,
-            decoration: const InputDecoration(labelText: 'Artist'),
-            onSubmitted: (_) => _manualSend(),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _manualSend,
-            child: const Text('Fetch & send'),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Opacity(
+                opacity: 0.35,
+                child: const Text(
+                  '@arsyadffr',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, letterSpacing: 1.2),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  void _manualSend() {
-    _lastKey = '';
-    _handleTrack(_titleCtl.text, _artistCtl.text);
+  Widget _artPlaceholder(ColorScheme scheme) {
+    return Container(
+      color: scheme.surfaceContainerHighest,
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.music_note_rounded,
+        size: 96,
+        color: scheme.onSurface.withOpacity(0.25),
+      ),
+    );
   }
 }
